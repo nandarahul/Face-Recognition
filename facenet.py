@@ -8,6 +8,7 @@ import utils
 
 class FaceNet(nn.Module):
     def __init__(self, embedding_dimensions=64):
+        super(FaceNet, self).__init__()
         self.embedding_dimensions = embedding_dimensions
         self.model = resnet18(pretrained=True)
         resnet_fc_in = self.model.fc.in_features
