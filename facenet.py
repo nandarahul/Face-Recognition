@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -7,8 +9,7 @@ from torchvision.models import resnet18
 from torchvision import transforms
 from PIL import Image
 import utils
-
-use_cuda = False
+use_cuda = True
 
 class FaceNet(nn.Module):
     def __init__(self, embedding_dimensions=64):
@@ -22,8 +23,11 @@ class FaceNet(nn.Module):
         self.model.fc.weight.data.normal_(0.0, 0.02)
         self.model.fc.bias.data.fill_(0)
 
+        if torch.cuda.is_available() and use_cuda:
+            self.model.cuda()
+
         self.batch_size = 10
-        self.num_triplets_train = self.batch_size
+        self.num_triplets_train = self.batch_size ** 3 #(all possible triplets N^3)
         self.num_triplets_test = self.num_triplets_train // 10
         self.lr = 1e-4
         self.loss_fn = utils.triplet_loss
@@ -39,13 +43,23 @@ class FaceNet(nn.Module):
                                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
                                         ])
         train_data_loader = utils.TripletDataset("./dataset/lfw/train_dataset", self.num_triplets_train, transform)
-        train_data = np.array(train_data_loader.imgs)[:, 0]
-        train_images = torch.stack([transform(Image.open(image_path)) for image_path in train_data])
-        train_labels = np.array(train_data_loader.imgs)[:, 1]
+
+        train_data, train_labels = [], []
+        for class_label, class_images in train_data_loader.class_map.items():
+            train_data.append(class_images[0])
+            train_labels.append(class_label)
+        train_images = [transform(Image.open(image_path)) for image_path in train_data]
+        if torch.cuda.is_available() and use_cuda:
+            train_images = [image.cuda() for image in train_images]
+        train_images = torch.stack(train_images)
+
         test_data_loader = utils.TripletDataset("./dataset/lfw/test_dataset", self.num_triplets_test, transform)
-        test_data = np.array(test_data_loader.imgs)[:, 0]
-        test_images = torch.stack([transform(Image.open(image_path)) for image_path in test_data])
-        test_labels = np.array(test_data_loader.imgs)[:, 1]
+        # test_data = np.array(test_data_loader.imgs)[:, 0]
+        # test_images = [transform(Image.open(image_path)) for image_path in test_data]
+        # if torch.cuda.is_available() and use_cuda:
+        #     test_images = [image.cuda() for image in test_images]
+        # test_images = torch.stack(test_images)
+        # test_labels = np.array(test_data_loader.imgs)[:, 1]
 
         break_batches = False
         total_epochs = 100
@@ -55,6 +69,7 @@ class FaceNet(nn.Module):
             self.model.train()
             train_loss = 0
             print("Epoc: ", epoch)
+            total_train_data = len(train_data_loader.triplets)
             for idx, (anchor_img, pos_img, neg_img, anchor_class, neg_class) in enumerate(train_data_loader):
                 anchor_img, pos_img, neg_img = anchor_img.unsqueeze(0), pos_img.unsqueeze(0), neg_img.unsqueeze(0)
                 if torch.cuda.is_available() and use_cuda:
@@ -66,13 +81,13 @@ class FaceNet(nn.Module):
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                print(loss)
+                print(idx, "/", total_train_data, loss.item())
                 if break_batches:
                     break
 
             print("Train %.2f" % (train_loss))
 
-            if epoch % 10 == 0:
+            if epoch % 10 == 0 and False:
                 test_loss = 0
                 self.model.eval()
                 correct_ct, total_ct = 0, 0
