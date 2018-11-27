@@ -54,12 +54,12 @@ class FaceNet(nn.Module):
         train_images = torch.stack(train_images)
 
         test_data_loader = utils.TripletDataset("./dataset/lfw/test_dataset", self.num_triplets_test, transform)
-        # test_data = np.array(test_data_loader.imgs)[:, 0]
+        test_data = np.array(test_data_loader.imgs)[:, 0]
         # test_images = [transform(Image.open(image_path)) for image_path in test_data]
         # if torch.cuda.is_available() and use_cuda:
         #     test_images = [image.cuda() for image in test_images]
         # test_images = torch.stack(test_images)
-        # test_labels = np.array(test_data_loader.imgs)[:, 1]
+        test_labels = np.array(test_data_loader.imgs)[:, 1]
 
         break_batches = False
         total_epochs = 100
@@ -94,7 +94,14 @@ class FaceNet(nn.Module):
                 with torch.no_grad():
                     # Get updated embeddings
                     train_embeddings = self.forward(train_images)
-                    test_embeddings = self.forward(test_images)
+                    test_embeddings = []
+                    for image_path in test_data:
+                        test_image = transform(Image.open(image_path))
+                        if torch.cuda.is_available() and use_cuda:
+                            test_image = test_image.cuda()
+                        test_embeddings.append(self.forward(test_image))
+
+                    test_embeddings = torch.stack(test_embeddings)
                     for test_embedding, test_truth in zip(test_embeddings, test_labels):
                         dist = torch.pow(train_embeddings - test_embedding, 2).sum(1)
                         train_index = torch.argmin(dist).tolist()
