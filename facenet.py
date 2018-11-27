@@ -9,6 +9,7 @@ from torchvision.models import resnet18
 from torchvision import transforms
 from PIL import Image
 import utils
+import os
 use_cuda = True
 
 class FaceNet(nn.Module):
@@ -29,7 +30,7 @@ class FaceNet(nn.Module):
         self.batch_size = 10
         self.num_triplets_train = self.batch_size ** 3 #(all possible triplets N^3)
         self.num_triplets_test = self.num_triplets_train // 10
-        self.lr = 1e-4
+        self.lr = 1e-5
         self.loss_fn = utils.triplet_loss
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
@@ -62,10 +63,22 @@ class FaceNet(nn.Module):
         test_labels = np.array(test_data_loader.imgs)[:, 1]
 
         break_batches = False
-        total_epochs = 100
-        last_saved_epoch = 0
+        total_epochs = 1000
+        last_saved_epoch = -1
+        accuracy = 0
+        training_state_file = "./state.pkl"
+        if os.path.isfile(training_state_file):
+            training_state = torch.load(training_state_file)
+            last_saved_epoch = training_state["last_saved_epoch"]
+            model_file = training_state["model_file"]
+            saved_model = torch.load(model_file)
+            accuracy = saved_model["accuracy"]
+            self.model.load_state_dict(saved_model['state_dict'])
+            self.optimizer.load_state_dict(saved_model['optimizer_state_dict'])
+            print("Loaded state!")
+            print(training_state)
 
-        for epoch in range(last_saved_epoch, total_epochs):
+        for epoch in range(last_saved_epoch + 1, total_epochs):
             self.model.train()
             train_loss = 0
             print("Epoc: ", epoch)
@@ -81,14 +94,14 @@ class FaceNet(nn.Module):
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
-                print(idx, "/", total_train_data, loss.item())
+                if idx % 100 == 0:
+                    print(idx, "/", total_train_data, loss.item())
                 if break_batches:
                     break
 
             print("Train %.2f" % (train_loss))
 
-            if epoch % 10 == 0 and False:
-                test_loss = 0
+            if epoch % 5 == 0:
                 self.model.eval()
                 correct_ct, total_ct = 0, 0
                 with torch.no_grad():
@@ -99,7 +112,7 @@ class FaceNet(nn.Module):
                         test_image = transform(Image.open(image_path))
                         if torch.cuda.is_available() and use_cuda:
                             test_image = test_image.cuda()
-                        test_embeddings.append(self.forward(test_image))
+                        test_embeddings.append(self.forward(test_image.unsqueeze(0)))
 
                     test_embeddings = torch.stack(test_embeddings)
                     for test_embedding, test_truth in zip(test_embeddings, test_labels):
@@ -110,22 +123,24 @@ class FaceNet(nn.Module):
                             correct_ct += 1
                     total_ct = len(test_embeddings)
                     accuracy = correct_ct / total_ct
-
-                    for idx, (anchor_img, pos_img, neg_img, anchor_class, neg_class) in enumerate(test_data_loader):
-                        anchor_img, pos_img, neg_img = anchor_img.unsqueeze(0), pos_img.unsqueeze(0), neg_img.unsqueeze(
-                            0)
-                        if torch.cuda.is_available() and use_cuda:
-                            anchor_img, pos_img, neg_img = anchor_img.cuda(), pos_img.cuda(), neg_img.cuda()
-                        anchor_img, pos_img, neg_img = Variable(anchor_img), Variable(pos_img), Variable(neg_img)
-                        anchor_emb, pos_emb, neg_emb = self.forward(anchor_img), self.forward(pos_img), self.forward(
-                            neg_img)
-                        loss = utils.triplet_loss(anchor_emb, pos_emb, neg_emb)
-                        test_loss += loss
-                        if break_batches:
-                            break
-
-                    print("Test Loss %.2f, Accuracy : %.2f" % (test_loss, accuracy))
-                    # print("Test Loss %.2f" % (test_loss))
+                    print("Test {}/{} = Accuracy {}".format(correct_ct, total_ct, accuracy))
+            model_file = './saved_model/resnet_{}.pkl'.format(epoch)
+            model_state = {
+                'state_dict': self.model.state_dict(),
+                'optimizer_state_dict': self.optimizer.state_dict(),
+                'accuracy': accuracy
+            }
+            torch.save(model_state, model_file)
+            training_state["last_saved_epoch"] = epoch
+            training_state["model_file"] = model_file
+            torch.save(training_state, training_state_file)
 
 fn = FaceNet()
 fn.train()
+
+
+
+
+
+
+
