@@ -1,7 +1,7 @@
 import os, shutil
 
-TRAINING_DIR_PATH, TEST_DIR_PATH= "train_dataset", "test_dataset"
-LFW_DIR_PATH = "lfw-deepfunneled"
+TRAINING_DIR_PATH, TEST_DIR_PATH= "./dataset/lfw/train_dataset", "./dataset/lfw/test_dataset"
+LFW_DIR_PATH = "./dataset/lfw/lfw-deepfunneled"
 os.mkdir(TRAINING_DIR_PATH)
 os.mkdir(TEST_DIR_PATH)
 train_image_count = 0
@@ -23,6 +23,6 @@ for label_directory_name in os.listdir(LFW_DIR_PATH):
                 train_image_count += 1
             else:
                 shutil.copy(os.path.join(label_directory_path, image_name), test_label_dir_path)
-        if train_image_count > 5000:
+        if train_image_count > 50:
             break
 print("Training image count: {}".format(train_image_count))
