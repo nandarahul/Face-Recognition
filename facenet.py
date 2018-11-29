@@ -31,11 +31,19 @@ class FaceNet(nn.Module):
 
         self.batch_size = 60
         # self.num_triplets_train = self.batch_size ** 3 #(all possible triplets N^3)
-        self.num_triplets_train = 100000
+        self.num_triplets_train = 1000
         self.num_triplets_test = self.num_triplets_train // 10
         self.lr = 1e-7
         self.loss_fn = triplet_loss
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
+
+    def load_saved_model(self, model_file=None):
+        if model_file is None:
+            model_file = os.path.join(os.path.dirname(__file__), "saved_model/resnet_best.pkl")
+        saved_model = torch.load(model_file)
+        self.model.load_state_dict(saved_model['state_dict'])
+        self.optimizer.load_state_dict(saved_model['optimizer_state_dict'])
+        return saved_model
 
     def forward(self, input_images):
         output = self.model(input_images)
@@ -46,21 +54,6 @@ class FaceNet(nn.Module):
                                         transforms.ToTensor(),
                                         transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
                                         ])
-        print("Starting Train")
-        train_data_set = TripletDataset("./dataset/lfw/train_dataset", self.num_triplets_train, transform)
-        kwargs = {'num_workers': 8, 'pin_memory': True} if use_cuda else {}
-        train_data_loader = torch.utils.data.DataLoader(train_data_set, batch_size=self.batch_size, shuffle=False,
-                                                        **kwargs)
-        print("Trainloader done")
-        train_data, train_labels = [], []
-        for class_label, class_images in train_data_set.class_map.items():
-            train_data.append(class_images[0])
-            train_labels.append(class_label)
-        train_images = [transform(Image.open(image_path)) for image_path in train_data]
-        if torch.cuda.is_available() and use_cuda:
-            train_images = [image.cuda() for image in train_images]
-        train_images = torch.stack(train_images)
-        print("Train images done")
         test_data_loader = TripletDataset("./dataset/lfw/test_dataset", self.num_triplets_test, transform)
         test_data = np.array(test_data_loader.imgs)[:, 0]
         # test_images = [transform(Image.open(image_path)) for image_path in test_data]
@@ -87,64 +80,82 @@ class FaceNet(nn.Module):
             model_file = training_state["model_file"]
 
             print("Loading: ", model_file)
-            saved_model = torch.load(model_file)
+            saved_model = self.load_saved_model(model_file)
             accuracy = saved_model["accuracy"]
-            self.model.load_state_dict(saved_model['state_dict'])
-            self.optimizer.load_state_dict(saved_model['optimizer_state_dict'])
             print("Loaded state!")
 
-        #Since we have 4000 images, lets just treat each batch of ~60 images as an epoch
-        for epoch, (anchor_img, pos_img, neg_img, anchor_class, neg_class) in enumerate(train_data_loader):
-            self.model.train()
-            train_loss = 0
-            total_train_data = len(train_data_set.triplets)
-            print("Batch: ", epoch)
-            # print(anchor_img[:5][0][0][:5])
-            # anchor_img, pos_img, neg_img = anchor_img.unsqueeze(0), pos_img.unsqueeze(0), neg_img.unsqueeze(0)
+        for epoch in range(last_saved_epoch + 1, total_epochs):
+            print("*" * 20)
+            print("Epoc: ", epoch)
+            print("Starting Train")
+            train_data_set = TripletDataset("./dataset/lfw/train_dataset", self.num_triplets_train, transform)
+            kwargs = {'num_workers': 8, 'pin_memory': True} if use_cuda else {}
+            train_data_loader = torch.utils.data.DataLoader(train_data_set, batch_size=self.batch_size, shuffle=False,
+                                                            **kwargs)
+            print("Trainloader done")
+            train_data, train_labels = [], []
+            for class_label, class_images in train_data_set.class_map.items():
+                train_data.append(class_images[0])
+                train_labels.append(class_label)
+            train_images = [transform(Image.open(image_path)) for image_path in train_data]
             if torch.cuda.is_available() and use_cuda:
-                anchor_img, pos_img, neg_img = anchor_img.cuda(), pos_img.cuda(), neg_img.cuda()
-            anchor_img, pos_img, neg_img = Variable(anchor_img), Variable(pos_img), Variable(neg_img)
-            anchor_emb, pos_emb, neg_emb = self.forward(anchor_img), self.forward(pos_img), self.forward(neg_img)
-            loss = triplet_loss(anchor_emb, pos_emb, neg_emb)
-            train_loss += loss
-            self.optimizer.zero_grad()
-            loss.backward()
-            self.optimizer.step()
-            if epoch % 100 == 0:
-                print(epoch, "/", total_train_data, loss.item())
-            if break_batches:
-                break
+                train_images = [image.cuda() for image in train_images]
+            train_images = torch.stack(train_images)
+            print("Train images done")
+            total_train_data = len(train_data_set.triplets)
 
-            print("Train %.2f" % (train_loss))
+            for batch_idx, (anchor_img, pos_img, neg_img, anchor_class, neg_class) in enumerate(train_data_loader):
+                self.model.train()
+                train_loss = 0
+                print("Batch: ", batch_idx, end=' ')
+                # print(anchor_img[:5][0][0][:5])
+                # anchor_img, pos_img, neg_img = anchor_img.unsqueeze(0), pos_img.unsqueeze(0), neg_img.unsqueeze(0)
+                if torch.cuda.is_available() and use_cuda:
+                    anchor_img, pos_img, neg_img = anchor_img.cuda(), pos_img.cuda(), neg_img.cuda()
+                anchor_img, pos_img, neg_img = Variable(anchor_img), Variable(pos_img), Variable(neg_img)
+                anchor_emb, pos_emb, neg_emb = self.forward(anchor_img), self.forward(pos_img), self.forward(neg_img)
+                loss = triplet_loss(anchor_emb, pos_emb, neg_emb)
+                train_loss += loss
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+                if batch_idx % 100 == 0:
+                    print(batch_idx, "/", total_train_data, loss.item())
+                if break_batches:
+                    break
 
-            if epoch % 10 == 0:
-                correct_ct, total_ct, accuracy = self.test(train_images, train_labels, test_data, test_labels, transform)
-                print("Test {}/{} = Accuracy {}".format(correct_ct, total_ct, accuracy))
+                print("loss %.2f" % (train_loss))
 
-            model_state = {
-                'state_dict': self.model.state_dict(),
-                'optimizer_state_dict': self.optimizer.state_dict(),
-                'accuracy': accuracy
-            }
-            model_file = './saved_model/resnet_last.pkl'
-            if save_models:
-                if os.path.isfile(model_file):
-                    os.rename(model_file, './saved_model/resnet_last_prev.pkl')
-                torch.save(model_state, model_file)
-            training_state["last_saved_epoch"] = epoch
-            training_state["model_file"] = model_file
-            training_state["loss"] = train_loss
-            training_state["accuracy"] = accuracy
-            training_state["best_accuracy"] = max(best_accuracy, accuracy)
-            if save_models:
-                torch.save(training_state, training_state_file)
+                if batch_idx % 10 == 0:
+                    correct_ct, total_ct, accuracy = self.test(train_images, train_labels, test_data, test_labels, transform)
+                    print("Test {}/{} = Accuracy {}".format(correct_ct, total_ct, accuracy))
 
-            if (epoch % 100 == 0) and save_models:
-                model_file = './saved_model/resnet_{}.pkl'.format(epoch)
-                copyfile('./saved_model/resnet_last.pkl', model_file)
-            if best_accuracy < accuracy and save_models:
-                model_file = './saved_model/resnet_best.pkl'
-                copyfile('./saved_model/resnet_last.pkl', model_file)
+                model_state = {
+                    'state_dict': self.model.state_dict(),
+                    'optimizer_state_dict': self.optimizer.state_dict(),
+                    'accuracy': accuracy
+                }
+                model_file = './saved_model/resnet_last.pkl'
+                if save_models:
+                    if os.path.isfile(model_file):
+                        #Copy last model for backup, incase cutting python corrupts the file write
+                        os.rename(model_file, './saved_model/resnet_last_prev.pkl')
+                    torch.save(model_state, model_file)
+                training_state["last_saved_epoch"] = epoch
+                training_state["model_file"] = model_file
+                training_state["loss"] = train_loss
+                training_state["accuracy"] = accuracy
+                training_state["best_accuracy"] = max(best_accuracy, accuracy)
+                if save_models:
+                    torch.save(training_state, training_state_file)
+
+                if (epoch % 100 == 0) and save_models:
+                    model_file = './saved_model/resnet_{}_{}.pkl'.format(epoch, batch_idx)
+                    copyfile('./saved_model/resnet_last.pkl', model_file)
+                if best_accuracy < accuracy and save_models:
+                    #Save best model if it beats old best_accuracy
+                    model_file = './saved_model/resnet_best.pkl'
+                    copyfile('./saved_model/resnet_last.pkl', model_file)
 
     def test(self, train_images, train_labels, test_data, test_labels, transform):
         self.model.eval()
@@ -170,8 +181,10 @@ class FaceNet(nn.Module):
             accuracy = (1.0 * correct_ct) / total_ct
         return correct_ct, total_ct, accuracy
 
-fn = FaceNet()
-fn.train()
+
+if __name__ == "__main__":
+    fn = FaceNet()
+    fn.train()
 
 
 
