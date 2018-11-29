@@ -169,18 +169,34 @@ class FaceNet(nn.Module):
                 if torch.cuda.is_available() and use_cuda:
                     test_image = test_image.cuda()
                 test_embeddings.append(self.forward(test_image.unsqueeze(0)))
-
             test_embeddings = torch.stack(test_embeddings)
-            for test_embedding, test_truth in zip(test_embeddings, test_labels):
-                dist = torch.pow(train_embeddings - test_embedding, 2).sum(1)
-                train_index = torch.argmin(dist).tolist()
-                pred_label = train_labels[train_index]
+            total_ct = len(test_embeddings)
+            pred_labels = self.find_labels(train_embeddings, train_labels, test_embeddings)
+            for pred_label, test_truth in zip(pred_labels, test_labels):
                 if (pred_label == test_truth):
                     correct_ct += 1
-            total_ct = len(test_embeddings)
+
             accuracy = (1.0 * correct_ct) / total_ct
         return correct_ct, total_ct, accuracy
 
+    def find_labels(self, known_embeddings, train_labels, test_embeddings, threshold=0.6):
+        with torch.no_grad():
+            test_labels = []
+            print(known_embeddings)
+            print(train_labels)
+            for test_embedding in test_embeddings:
+                dist = torch.pow(known_embeddings - test_embedding, 2).sum(1)
+                train_index = torch.argmin(dist).tolist()
+                if dist[train_index] > threshold:
+                    pred_label = None
+                else:
+                    pred_label = train_labels[train_index]
+                test_labels.append(pred_label)
+                print("*"*20)
+                print(train_index)
+                print(test_embedding)
+                print("*" * 20)
+            return test_labels
 
 if __name__ == "__main__":
     fn = FaceNet()
