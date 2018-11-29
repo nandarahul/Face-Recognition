@@ -1,4 +1,3 @@
-import face_recognition
 import pickle
 import cv2
 import os
@@ -13,24 +12,21 @@ import numpy as np
 from torchvision.models import resnet18
 from torchvision import transforms
 from PIL import Image
-import facenet as FaceNet
-import utils as FaceNetUtils
+from . import facenet as FaceNet
+from . import utils as FaceNetUtils
 
 use_cuda = torch.cuda.is_available()
 
 config = {
-    "dataset": "people",
-    "embeddings": "embeddings.pickle",
+    "dataset": os.path.join(os.path.dirname(__file__), "people"),
+    "embeddings": os.path.join(os.path.dirname(__file__), "embeddings.pickle"),
     "detection": "cnn",
     # "image": "test_images/flash2.jpg",
     "image": "test_images/Grant_Gustin_SDCC_2017.jpg",
     "video": "video/flash_trailer.mp4"
 }
 
-if os.path.exists(config["embeddings"]):
-    embeddings_data = pickle.loads(open(config["embeddings"], "rb").read())
-else:
-    embeddings_data = save_sample_embeddings()
+
 
 # cnn_face_detector = dlib.cnn_face_detection_model_v1("./mmod_human_face_detector.dat")
 facenet = FaceNet.FaceNet()
@@ -56,8 +52,8 @@ def save_sample_embeddings():
     def getPersonFromPath(path):
         return path.split(os.path.sep)[-2]
     for extension in image_extensions:
-        image_paths.extend(glob.glob('./' + config['dataset'] + '/*/*.' + extension))
-    # print(image_paths)
+        image_paths.extend(glob.glob(config['dataset'] + '/*/*.' + extension))
+    print(image_paths)
 
     for (i, image_path) in enumerate(image_paths):
         print("\rProcessing {} of {} images".format(i, len(image_paths)))
@@ -94,11 +90,20 @@ def save_sample_embeddings():
     return embeddings_data
 
 
+def get_embedding_data():
+    if os.path.exists(config["embeddings"]):
+        embeddings_data = pickle.loads(open(config["embeddings"], "rb").read())
+    else:
+        embeddings_data = save_sample_embeddings()
+    return embeddings_data
+
+
 def recognize_face_in_patch(image):
     face_image = FaceNetUtils.get_face_from_person(image)
     if face_image is None:
         return None
     embedding = get_embedding(face_image)
+    embeddings_data = get_embedding_data()
     # print(embeddings_data["embeddings"])
     # print(embeddings_data["names"])
     trained_embeddings = torch.stack(embeddings_data["embeddings"])

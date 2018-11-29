@@ -11,8 +11,8 @@ from PIL import Image
 import utils
 import os
 from shutil import copyfile
-use_cuda = True
-from utils import triplet_loss, TripletDataset
+use_cuda = torch.cuda.is_available()
+from .utils import triplet_loss, TripletDataset
 
 class FaceNet(nn.Module):
     def __init__(self, embedding_dimensions=64):
@@ -40,7 +40,10 @@ class FaceNet(nn.Module):
     def load_saved_model(self, model_file=None):
         if model_file is None:
             model_file = os.path.join(os.path.dirname(__file__), "saved_model/resnet_best.pkl")
-        saved_model = torch.load(model_file)
+        if not use_cuda:
+            saved_model = torch.load(model_file, map_location='cpu')
+        else:
+            saved_model = torch.load(model_file)
         self.model.load_state_dict(saved_model['state_dict'])
         self.optimizer.load_state_dict(saved_model['optimizer_state_dict'])
         return saved_model
@@ -71,7 +74,10 @@ class FaceNet(nn.Module):
         training_state_file = "./state.pkl"
         training_state = {}
         if os.path.isfile(training_state_file):
-            training_state = torch.load(training_state_file)
+            if not use_cuda:
+                training_state = torch.load(training_state_file, map_location='cpu')
+            else:
+                training_state = torch.load(training_state_file)
             print("Loading state..")
             print(training_state)
 
@@ -179,7 +185,7 @@ class FaceNet(nn.Module):
             accuracy = (1.0 * correct_ct) / total_ct
         return correct_ct, total_ct, accuracy
 
-    def find_labels(self, known_embeddings, train_labels, test_embeddings, threshold=0.6):
+    def find_labels(self, known_embeddings, train_labels, test_embeddings, threshold=0.02):
         with torch.no_grad():
             test_labels = []
             print(known_embeddings)
@@ -193,6 +199,7 @@ class FaceNet(nn.Module):
                     pred_label = train_labels[train_index]
                 test_labels.append(pred_label)
                 print("*"*20)
+                print(dist[train_index])
                 print(train_index)
                 print(test_embedding)
                 print("*" * 20)
