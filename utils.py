@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import random
 from torchvision import datasets
+import dlib
+import cv2
 
 def pairwise_distance(x1, x2):
     diff = torch.abs(x1 - x2)
@@ -84,3 +86,19 @@ class TripletDataset(datasets.ImageFolder):
         negative_image = get_image(negative)
 
         return anchor_image, positive_image, negative_image, anchor_class, negative_class
+
+
+def get_face_from_person(person_img_np):
+    # Create a HOG face detector using the built-in dlib class
+    face_detector = dlib.get_frontal_face_detector()
+    # Run the HOG face detector on the image data.
+    # The result will be the bounding boxes of the faces in our image.
+    detected_faces = face_detector(person_img_np, 1)
+    print("detected faces:", detected_faces)
+    if len(detected_faces) != 1:
+        return None
+    face_rect = detected_faces[0]
+    face_img_np = person_img_np[face_rect.top():face_rect.bottom(), face_rect.left():face_rect.right()]
+    # cv2.imshow("Face", face_img_np)
+    # cv2.waitKey(0)
+    return face_img_np
