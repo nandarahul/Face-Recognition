@@ -33,7 +33,7 @@ class FaceNet(nn.Module):
         # self.num_triplets_train = self.batch_size ** 3 #(all possible triplets N^3)
         self.num_triplets_train = 100000
         self.num_triplets_test = self.num_triplets_train // 10
-        self.lr = 1e-4
+        self.lr = 1e-7
         self.loss_fn = triplet_loss
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=self.lr)
 
@@ -74,25 +74,31 @@ class FaceNet(nn.Module):
         total_epochs = 1000
         last_saved_epoch = -1
         accuracy = 0
+        best_accuracy = 0
         training_state_file = "./state.pkl"
         training_state = {}
         if os.path.isfile(training_state_file):
             training_state = torch.load(training_state_file)
+            print("Loading state..")
+            print(training_state)
+
             last_saved_epoch = training_state["last_saved_epoch"]
+            best_accuracy = training_state["best_accuracy"]
             model_file = training_state["model_file"]
+
+            print("Loading: ", model_file)
             saved_model = torch.load(model_file)
             accuracy = saved_model["accuracy"]
             self.model.load_state_dict(saved_model['state_dict'])
             self.optimizer.load_state_dict(saved_model['optimizer_state_dict'])
             print("Loaded state!")
-            print(training_state)
 
         #Since we have 4000 images, lets just treat each batch of ~60 images as an epoch
         for epoch, (anchor_img, pos_img, neg_img, anchor_class, neg_class) in enumerate(train_data_loader):
             self.model.train()
             train_loss = 0
             total_train_data = len(train_data_set.triplets)
-            print("Epoc: ", epoch)
+            print("Batch: ", epoch)
             # print(anchor_img[:5][0][0][:5])
             # anchor_img, pos_img, neg_img = anchor_img.unsqueeze(0), pos_img.unsqueeze(0), neg_img.unsqueeze(0)
             if torch.cuda.is_available() and use_cuda:
@@ -122,15 +128,22 @@ class FaceNet(nn.Module):
             }
             model_file = './saved_model/resnet_last.pkl'
             if save_models:
+                if os.path.isfile(model_file):
+                    os.rename(model_file, './saved_model/resnet_last_prev.pkl')
                 torch.save(model_state, model_file)
             training_state["last_saved_epoch"] = epoch
             training_state["model_file"] = model_file
             training_state["loss"] = train_loss
             training_state["accuracy"] = accuracy
+            training_state["best_accuracy"] = max(best_accuracy, accuracy)
             if save_models:
                 torch.save(training_state, training_state_file)
-            if epoch % 100 == 0 and save_models:
+
+            if (epoch % 100 == 0) and save_models:
                 model_file = './saved_model/resnet_{}.pkl'.format(epoch)
+                copyfile('./saved_model/resnet_last.pkl', model_file)
+            if best_accuracy < accuracy and save_models:
+                model_file = './saved_model/resnet_best.pkl'
                 copyfile('./saved_model/resnet_last.pkl', model_file)
 
     def test(self, train_images, train_labels, test_data, test_labels, transform):
