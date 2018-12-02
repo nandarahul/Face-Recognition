@@ -89,6 +89,12 @@ class TripletDataset(datasets.ImageFolder):
 
 
 def get_face_from_person(person_img_np):
+    print(person_img_np.shape)
+    #cv2.imshow("person", person_img_np)
+    #cv2.waitKey(0)
+    predictor_path = "/Users/rahul/Documents/BME-DeepLearning/project/Nw/shape_predictor_5_face_landmarks.dat"
+    sp = dlib.shape_predictor(predictor_path)
+
     # Create a HOG face detector using the built-in dlib class
     face_detector = dlib.get_frontal_face_detector()
     # Run the HOG face detector on the image data.
@@ -97,8 +103,17 @@ def get_face_from_person(person_img_np):
     print("detected faces:", detected_faces)
     if len(detected_faces) != 1:
         return None
-    face_rect = detected_faces[0]
-    face_img_np = person_img_np[face_rect.top():face_rect.bottom(), face_rect.left():face_rect.right()]
-    # cv2.imshow("Face", face_img_np)
+
+    faces = dlib.full_object_detections()
+    for detection in detected_faces:
+        faces.append(sp(person_img_np, detection))
+    images = dlib.get_face_chips(person_img_np, faces)
+    #cv2.imshow("Aligned Face", images[0])
+    #cv2.waitKey(0)
+    return images[0]
+
+    # face_rect = detected_faces[0]
+    # face_img_np = person_img_np[face_rect.top():face_rect.bottom(), face_rect.left():face_rect.right()]
+    # cv2.imshow("Old Face", face_img_np)
     # cv2.waitKey(0)
-    return face_img_np
+    # return face_img_np
